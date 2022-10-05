@@ -4,6 +4,8 @@ import scala.io.{ Codec, Source }
 
 object Anagrams extends AnagramsInterface:
 
+  val DEBUG = false
+
   /** A word is simply a `String`. */
   type Word = String
 
@@ -21,7 +23,19 @@ object Anagrams extends AnagramsInterface:
    *  Note: If the frequency of some character is zero, then that character should not be
    *  in the list.
    */
+
   type Occurrences = List[(Char, Int)]
+
+  def toOccurrences(elements: List[(Char, Int)]): Occurrences =
+    val occurrences = elements.filter(x => x._1 > 0).sortBy(_._1)
+    if DEBUG then validateOccurrence(occurrences)
+    occurrences
+
+
+  def validateOccurrence(occurrences: Occurrences) =
+    occurrences.foreach(x => assert(x._1 > 0))
+    assert(occurrences == occurrences.sortBy(_._1))
+
 
   /** The dictionary is simply a sequence of words.
    *  It is predefined and obtained as a sequence using the utility method `loadDictionary`.
@@ -35,10 +49,13 @@ object Anagrams extends AnagramsInterface:
    *
    *  Note: you must use `groupBy` to implement this method!
    */
-  def wordOccurrences(w: Word): Occurrences = ???
+  def wordOccurrences(w: Word): Occurrences =
+    val occurrences = toOccurrences(w.toLowerCase.groupBy(identity).map(x => (x._1, x._2.length)).toList)
+    if DEBUG then validateOccurrence(occurrences)
+    occurrences
 
   /** Converts a sentence into its character occurrence list. */
-  def sentenceOccurrences(s: Sentence): Occurrences = ???
+  def sentenceOccurrences(s: Sentence): Occurrences = wordOccurrences(s.mkString(""))
 
   /** The `dictionaryByOccurrences` is a `Map` from different occurrences to a sequence of all
    *  the words that have that occurrence count.
@@ -55,10 +72,11 @@ object Anagrams extends AnagramsInterface:
    *    List(('a', 1), ('e', 1), ('t', 1)) -> Seq("ate", "eat", "tea")
    *
    */
-  lazy val dictionaryByOccurrences: Map[Occurrences, List[Word]] = ???
+  lazy val dictionaryByOccurrences: Map[Occurrences, List[Word]] =
+    dictionary.groupBy(wordOccurrences)
 
   /** Returns all the anagrams of a given word. */
-  def wordAnagrams(word: Word): List[Word] = ???
+  def wordAnagrams(word: Word): List[Word] = dictionaryByOccurrences.getOrElse(wordOccurrences(word), Nil)
 
   /** Returns the list of all subsets of the occurrence list.
    *  This includes the occurrence itself, i.e. `List(('k', 1), ('o', 1))`
@@ -82,7 +100,28 @@ object Anagrams extends AnagramsInterface:
    *  Note that the order of the occurrence list subsets does not matter -- the subsets
    *  in the example above could have been displayed in some other order.
    */
-  def combinations(occurrences: Occurrences): List[Occurrences] = ???
+  def combinations(occurrences: Occurrences): List[Occurrences] =
+    // Strategy here is to build up a list occurrences using foldLeft
+    // Note: We use foldRight here to preserve the ordering of occurrences
+    val combinationsOccs = occurrences.foldRight(List[Occurrences](Nil)) {
+      case ((char, count), acc) =>
+        // Accumulator is a list of occurrences
+        //      println("starting accumulator")
+        //      println(acc)
+        val nextOccurrence = (
+          for occAcc <- acc // Existing occurrence lists
+              i <- 1 to count // obtain (char, 1), ... (char, count) occurrences
+          // For each occurrence list, append the current (char, count) pair
+          yield (char, i) :: occAcc
+          )
+        //      println("Next occurrence")
+        //      println(nextOccurrence)
+        val nextAcc = acc ::: nextOccurrence
+        nextAcc
+    }
+
+    if DEBUG then combinationsOccs.foreach(validateOccurrence)
+    combinationsOccs
 
   /** Subtracts occurrence list `y` from occurrence list `x`.
    *
@@ -94,7 +133,18 @@ object Anagrams extends AnagramsInterface:
    *  Note: the resulting value is an occurrence - meaning it is sorted
    *  and has no zero-entries.
    */
-  def subtract(x: Occurrences, y: Occurrences): Occurrences = ???
+  def subtract(x: Occurrences, y: Occurrences): Occurrences =
+    // Strategy to use foldLeft, starting with a map of X occurrences (xMap),
+    // Update the xMap according to the values in yMap
+    val yMap = y.toMap
+    var occurrences = x.foldLeft(x.toMap) {
+      case (map, (char, count)) =>
+        val decrement = yMap.getOrElse(char, 0)
+        if map(char) - decrement > 0 then map.updated(char, count - decrement) else map - char
+    }.toList
+    occurrences = toOccurrences(occurrences)
+    if DEBUG then validateOccurrence(occurrences)
+    occurrences
 
   /** Returns a list of all anagram sentences of the given sentence.
    *
@@ -136,12 +186,24 @@ object Anagrams extends AnagramsInterface:
    *
    *  Note: There is only one anagram of an empty sentence.
    */
-  def sentenceAnagrams(sentence: Sentence): List[Sentence] = ???
+  def sentenceAnagrams(sentence: Sentence): List[Sentence] =
+    // Strategy is to use recursion
+    def recurs(occurrences: Occurrences): List[Sentence] = occurrences match {
+      case Nil => List(Nil)
+      case _ =>
+        for comb <- combinations(occurrences)
+          wordAnagram <- dictionaryByOccurrences.getOrElse(comb, Nil)
+          ongoingSentence <- recurs(subtract(occurrences, wordOccurrences(wordAnagram)))
+        yield wordAnagram :: ongoingSentence
+    }
+    recurs(sentenceOccurrences(sentence))
+
 
 object Dictionary:
+  val linuxwordsPath = List("forcomp", "linuxwords.txt").mkString("/", "/", "")
   def loadDictionary: List[String] =
     val wordstream = Option {
-      getClass.getResourceAsStream(List("forcomp", "linuxwords.txt").mkString("/", "/", ""))
+      getClass.getResourceAsStream(linuxwordsPath)
     } getOrElse {
       sys.error("Could not load word list, dictionary file not found")
     }

@@ -31,7 +31,6 @@ class AnagramsSuite extends munit.FunSuite:
   }
 
 
-
   test("subtract: lard - r (10pts)") {
     val lard = List(('a', 1), ('d', 1), ('l', 1), ('r', 1))
     val r = List(('r', 1))
